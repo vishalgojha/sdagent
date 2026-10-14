@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gmail Cleaner - Login</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:40px;background:#f6f7f9}
+    .card{background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.08);max-width:420px;margin:auto;padding:32px}
+    input{width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;margin:8px 0}
+    button{background:#2563eb;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer}
+    .muted{color:#6b7280;font-size:14px}
+    .alert{padding:10px 12px;border-radius:8px;margin:12px 0}
+    .alert-danger{background:#fef2f2;color:#991b1b}
+    .alert-success{background:#f0fdf4;color:#166534}
+    .alert-info{background:#eff6ff;color:#1e40af}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Gmail Cleaner</h2>
+    <p class="muted">Use Gmail App Password. 2FA must be enabled.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="alert alert-{{category}}">{{msg}}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    <form method="post">
+      <label>Email</label>
+      <input type="email" name="email" placeholder="you@gmail.com" required>
+      <label>App Password (16 chars)</label>
+      <input type="password" name="password" placeholder="xxxx xxxx xxxx xxxx" required>
+      <button type="submit">Connect</button>
+    </form>
+    <p class="muted" style="margin-top:16px">Generate at <a href="https://myaccount.google.com/apppasswords" target="_blank">myaccount.google.com/apppasswords</a> → Other</p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gmail Cleaner</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px;background:#f6f7f9}
+    .card{background:#fff;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:24px;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px;border-bottom:1px solid #f3f4f6;text-align:left}
+    .muted{color:#6b7280}
+    .btn{background:#2563eb;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+    .btn-ghost{background:#eef2ff;color:#1e40af}
+    .btn-danger{background:#dc2626}
+    input,select{padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .alert{padding:10px 12px;border-radius:8px;margin:12px 0}
+    .alert-success{background:#f0fdf4;color:#166534}
+    .alert-info{background:#eff6ff;color:#1e40af}
+    .alert-danger{background:#fef2f2;color:#991b1b}
+    .alert-warning{background:#fffbeb;color:#92400e}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2 style="margin:0">Gmail Cleaner</h2>
+        <div class="muted">{{email}}</div>
+      </div>
+      <div class="row">
+        <a class="btn btn-ghost" href="/logout">Logout</a>
+      </div>
+    </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="alert alert-{{category}}">{{msg}}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Settings</h3>
+    <form method="post" action="/config" class="row">
+      <div>
+        <label class="muted">Older than (years)</label><br>
+        <input type="number" name="older_years" min="0" max="10" value="{{config.older_years}}">
+      </div>
+      <div>
+        <label class="muted">Larger than (MB)</label><br>
+        <input type="number" name="larger_mb" min="0" max="1000" value="{{config.larger_mb}}">
+      </div>
+      <div>
+        <label class="muted">Protect starred</label><br>
+        <select name="protect_starred">
+          <option value="1" {% if config.protect_starred %}selected{% endif %}>Yes</option>
+          <option value="0" {% if not config.protect_starred %}selected{% endif %}>No</option>
+        </select>
+      </div>
+      <div>
+        <label class="muted">Delete Spam</label><br>
+        <select name="delete_spam">
+          <option value="1" {% if config.delete_spam %}selected{% endif %}>Yes</option>
+          <option value="0" {% if not config.delete_spam %}selected{% endif %}>No</option>
+        </select>
+      </div>
+      <div>
+        <label class="muted">Delete Trash</label><br>
+        <select name="delete_trash">
+          <option value="1" {% if config.delete_trash %}selected{% endif %}>Yes</option>
+          <option value="0" {% if not config.delete_trash %}selected{% endif %}>No</option>
+        </select>
+      </div>
+      <div style="margin-left:auto">
+        <button class="btn" type="submit">Save</button>
+      </div>
+    </form>
+    <div class="muted" style="margin-top:8px">Categories: promotions, updates, social, forums (skips starred by default)</div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <h3 style="margin:0">Preview</h3>
+        <div class="muted">DRY RUN - counts only, nothing deleted</div>
+      </div>
+      <div class="row">
+        <form method="post" action="/preview">
+          <button class="btn btn-ghost" type="submit">Refresh Preview</button>
+        </form>
+        <form method="post" action="/execute" onsubmit="return confirm('This will permanently delete emails. Continue?')">
+          <button class="btn btn-danger" type="submit">Delete Now</button>
+        </form>
+      </div>
+    </div>
+    <table style="margin-top:12px">
+      <thead>
+        <tr>
+          <th>Rule</th>
+          <th>Query</th>
+          <th style="text-align:right">Count (preview)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in preview %}
+        <tr>
+          <td>{{item.rule}}</td>
+          <td class="muted">{{item.query}}</td>
+          <td style="text-align:right">{{item.count}}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="3" class="muted">No preview yet. Click Refresh Preview.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div class="alert alert-warning" style="margin-top:12px">"Delete Now" moves matching emails to Trash and purges Trash (if enabled). Starred emails are protected.</div>
+  </div>
+</body>
+</html>
