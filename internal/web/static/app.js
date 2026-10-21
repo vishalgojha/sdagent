@@ -23,6 +23,7 @@ function setupNav() {
     if (history.replaceState) history.replaceState(null, "", "#/" + name);
     if (name === "tasks") refreshDashboard();
     if (name === "memory") refreshDashboard();
+    if (name === "bills" || name === "learnings") refreshDashboard();
     if (name === "email") refreshServices();
   }
   buttons.forEach(function(b) { b.addEventListener("click", function() { go(b.dataset.view); }); });
@@ -276,6 +277,24 @@ function refreshDashboard() {
     $("tasteList").innerHTML = (m.taste_notes || []).length
       ? m.taste_notes.map(function(t) { return "<li><span>" + esc(t) + "</span></li>"; }).join("")
       : '<li class="empty">Nothing yet.</li>';
+
+    var bills = (d.bills || []).slice(0, 20);
+    $("billList").innerHTML = bills.length
+      ? bills.map(function(b) {
+          var amount = b.amount ? "₹" + Number(b.amount).toLocaleString("en-IN") : "Amount not set";
+          var due = b.due_date ? "due " + b.due_date : "due date not set";
+          var state = b.status === "paid" ? "paid" : due;
+          return "<li><span><strong>" + esc(b.name) + "</strong><br><small>" + esc(b.kind || "recurring") + (b.frequency ? " · " + esc(b.frequency) : "") + "</small></span><em>" + esc(amount) + " · " + esc(state) + "</em></li>";
+        }).join("")
+      : '<li class="empty">No bills or EMIs yet. Add one above or message Agent V on WhatsApp.</li>';
+
+    var learnings = (d.learnings || []).slice(0, 20);
+    $("learningList").innerHTML = learnings.length
+      ? learnings.map(function(l) {
+          var date = l.created_at ? new Date(l.created_at).toLocaleDateString([], {month:"short", day:"numeric"}) : "";
+          return "<li><span><strong>" + esc(l.summary) + "</strong>" + (l.context ? "<br><small>" + esc(l.context) + "</small>" : "") + "</span><em>" + esc(l.status || "active") + (date ? " · " + esc(date) : "") + "</em></li>";
+        }).join("")
+      : '<li class="empty">Nothing recorded yet. Correct Agent V naturally when it gets something wrong.</li>';
   }).catch(function() {});
 }
 
@@ -357,6 +376,22 @@ function setupTasks() {
   input.addEventListener("keydown", function(e) { if (e.key === "Enter") add(); });
 }
 
+function setupBills() {
+  var input = $("billInput"), btn = $("billAdd");
+  function add() {
+    var msg = (input.value || "").trim();
+    if (!msg) return;
+    btn.disabled = true; btn.textContent = "…";
+    var text = /^(add|create|track|bill|emi|payment)/i.test(msg) ? msg : "add bill " + msg;
+    api("/api/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }) })
+      .then(function(d) { input.value = ""; if (d.reply) toast(d.reply); refreshDashboard(); })
+      .catch(function(e) { toast("Error: " + e.message); })
+      .finally(function() { btn.disabled = false; btn.textContent = "ADD"; });
+  }
+  btn.addEventListener("click", add);
+  input.addEventListener("keydown", function(e) { if (e.key === "Enter") add(); });
+}
+
 /* ---------- Email / services ---------- */
 
 function refreshServices() {
@@ -399,5 +434,6 @@ setupCommand();
 loadChat();
 setupNewChat();
 setupTasks();
+setupBills();
 setInterval(refreshStatus, 12000);
 setInterval(refreshDashboard, 15000);

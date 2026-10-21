@@ -188,6 +188,8 @@ body{background-image:radial-gradient(1100px 520px at 82% -12%,rgba(216,222,232,
       <button data-view="tasks"><span class="ic">☑</span>Tasks</button>
       <button data-view="music"><span class="ic">✦</span>Things I can do</button>
       <button data-view="memory"><span class="ic">♡</span>Memory</button>
+      <button data-view="bills"><span class="ic">₹</span>Bills &amp; EMIs</button>
+      <button data-view="learnings"><span class="ic">✧</span>Learning</button>
       <button data-view="email"><span class="ic">✉</span>Email</button>
     </div>
     <div class="foot">sdsheetal-go · whatsmeow</div>
@@ -289,6 +291,31 @@ body{background-image:radial-gradient(1100px 520px at 82% -12%,rgba(216,222,232,
     </section>
 
     <!-- EMAIL -->
+    <!-- BILLS -->
+    <section class="view" id="view-bills">
+      <div class="eyebrow">PERSONAL FINANCE</div>
+      <h2 class="view-title">Bills &amp; EMIs</h2>
+      <p class="view-sub">Track recurring payments and due dates. Agent V will remind you; it never moves money or pays automatically.</p>
+      <div class="card">
+        <div class="cmd-row">
+          <input id="billInput" autocomplete="off" placeholder="e.g. add EMI HDFC ₹42000 due 5th" aria-label="Add bill or EMI">
+          <button id="billAdd" class="btn" type="button">ADD</button>
+        </div>
+        <ul class="list" id="billList"><li class="empty">Loading…</li></ul>
+      </div>
+    </section>
+
+    <!-- LEARNINGS -->
+    <section class="view" id="view-learnings">
+      <div class="eyebrow">SELF-IMPROVEMENT</div>
+      <h2 class="view-title">What Agent V is learning</h2>
+      <p class="view-sub">Corrections and preferences are kept locally so the assistant can improve over time. You stay in control.</p>
+      <div class="card">
+        <ul class="list" id="learningList"><li class="empty">Nothing recorded yet.</li></ul>
+      </div>
+    </section>
+
+    <!-- EMAIL -->
     <section class="view" id="view-email">
       <div class="eyebrow">CONNECTED SERVICES</div>
       <h2 class="view-title">Email</h2>
@@ -309,11 +336,13 @@ body{background-image:radial-gradient(1100px 520px at 82% -12%,rgba(216,222,232,
   <button data-view="tasks"><span class="ic">☑</span>Tasks</button>
   <button data-view="music"><span class="ic">✦</span>Things I can do</button>
   <button data-view="memory"><span class="ic">♡</span>Memory</button>
+  <button data-view="bills"><span class="ic">₹</span>Bills</button>
+  <button data-view="learnings"><span class="ic">✧</span>Learning</button>
   <button data-view="email"><span class="ic">✉</span>Email</button>
 </nav>
 
 <div class="confirm-overlay" id="confirmOverlay" hidden><div class="confirm-card" role="dialog" aria-modal="true"><h3>Sheetal’s assistant</h3><p id="confirmText"></p><div class="confirm-actions"><button class="btn ghost" id="confirmCancel" type="button">Cancel</button><button class="btn" id="confirmOk" type="button">Disconnect</button></div></div></div><div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="/app.js?v=20260918-9"></script>
+<script src="/app.js?v=20261021-1"></script>
 <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
 </body>
 </html>
