@@ -186,6 +186,15 @@ func (a *Agent) Run(message string) Reply {
 	if matchesAny(text, []string{"hi", "hello", "hey", "namaste", "नमस्ते", "good morning", "good evening", "good afternoon", "gm", "hii", "hello sheetal"}) {
 		return a.greeting(raw)
 	}
+	if matchesAny(text, []string{"how are you", "how r you", "how are u", "how is it going", "what's up", "whats up", "kaisi ho", "kaise ho"}) {
+		return Reply{Text: "I’m doing well and ready to help. Aaj kis cheez ka dhyan rakhein — bills, reminders, planning, ya kuch aur?", Tool: "conversation"}
+	}
+	if matchesAny(text, []string{"thank you", "thanks", "thank u", "shukriya", "धन्यवाद"}) {
+		return Reply{Text: "You’re welcome. Jab bhi zaroorat ho, message kar dena.", Tool: "conversation"}
+	}
+	if matchesAny(text, []string{"good night", "gn", "bye", "goodbye", "see you"}) {
+		return Reply{Text: "Good night, Sheetal. Main yahin hoon — jab bhi zaroorat ho.", Tool: "conversation"}
+	}
 	if reply, ok := a.handleBills(raw, text); ok {
 		return reply
 	}
