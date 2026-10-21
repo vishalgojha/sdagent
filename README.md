@@ -47,9 +47,19 @@ Small keywords-based intent parser (English + Hindi). Examples:
   (search/music only works when Spotify creds are set; queued audio streams
   from the JioSaavn-style `uplink` if `SD_*` music endpoints are configured)
 - email: `check inbox`, `any new email`, `search email for invoice`
+- Gmail cleanup: `scan Gmail promotions`, then explicitly confirm with `confirm Gmail cleanup` to move the previewed messages to Trash; permanent deletion is not exposed
 - voice: send a voice note and Sheetal transcribes it with Sarvam STT, then
   answers; replies can be spoken with Sarvam TTS (Indic) or ElevenLabs
 - text `help` returns the full tool help
+
+## Native ClawHub skill ports
+
+ClawHub skills are reviewed as behavior specifications and ported into the Go
+runtime. The self-improvement skill stores bounded records in
+`$SDSHEETAL_DATA/learnings.json` and injects recent pending guidance into AI
+replies. The Gmail cleaner port uses the existing Nango Gmail connection,
+supports bounded previews and confirmation-gated trash/restore operations, and
+never permanently deletes mail.
 
 ## API
 

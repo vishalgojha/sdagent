@@ -128,18 +128,31 @@ type Memory struct {
 	Skips   map[string]int `json:"skips"`
 	Replays map[string]int `json:"replays"`
 
-	Preferences   []MemoryEntry `json:"preferences"`
-	TasteNotes    []MemoryEntry `json:"taste_notes"`
-	Conversations []MemoryEntry `json:"conversations"`
-	Moods         []MemoryEntry `json:"moods"`
+	Preferences    []MemoryEntry  `json:"preferences"`
+	TasteNotes     []MemoryEntry  `json:"taste_notes"`
+	Conversations  []MemoryEntry  `json:"conversations"`
+	Moods          []MemoryEntry  `json:"moods"`
 	KnowledgeGraph KnowledgeGraph `json:"knowledge_graph"`
 
 	Updated int64 `json:"updated"`
 }
 
-type KnowledgeNode struct { ID string `json:"id"`; Type string `json:"type"`; Label string `json:"label"`; Value string `json:"value,omitempty"`; Updated int64 `json:"updated"` }
-type KnowledgeEdge struct { From string `json:"from"`; Relation string `json:"relation"`; To string `json:"to"` }
-type KnowledgeGraph struct { Nodes []KnowledgeNode `json:"nodes"`; Edges []KnowledgeEdge `json:"edges"` }
+type KnowledgeNode struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Label   string `json:"label"`
+	Value   string `json:"value,omitempty"`
+	Updated int64  `json:"updated"`
+}
+type KnowledgeEdge struct {
+	From     string `json:"from"`
+	Relation string `json:"relation"`
+	To       string `json:"to"`
+}
+type KnowledgeGraph struct {
+	Nodes []KnowledgeNode `json:"nodes"`
+	Edges []KnowledgeEdge `json:"edges"`
+}
 
 type QueueItem struct {
 	ID     string `json:"id"`
@@ -163,6 +176,69 @@ type BridgeJob struct {
 	Result     string         `json:"result,omitempty"`
 	CreatedAt  string         `json:"created_at"`
 	UpdatedAt  string         `json:"updated_at"`
+}
+
+// Learning is a durable self-improvement record captured from the owner's
+// corrections, failed actions, and requested capabilities. It deliberately
+// stores short, redacted summaries rather than transcripts or secrets.
+type Learning struct {
+	ID              string `json:"id"`
+	Kind            string `json:"kind"`
+	Summary         string `json:"summary"`
+	Context         string `json:"context,omitempty"`
+	SuggestedAction string `json:"suggested_action,omitempty"`
+	Status          string `json:"status"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+func (s *Store) Learnings() []Learning {
+	out := []Learning{}
+	if err := s.readJSON(s.file("learnings.json"), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func (s *Store) SaveLearnings(entries []Learning) error {
+	return s.writeJSON(s.file("learnings.json"), entries)
+}
+
+// RecordLearning appends a bounded, non-secret self-improvement record.
+func (s *Store) RecordLearning(kind, summary, context, suggestedAction string) (Learning, error) {
+	summary = CleanText(summary, 500)
+	if summary == "" {
+		return Learning{}, fmt.Errorf("learning summary required")
+	}
+	kind = strings.ToLower(CleanText(kind, 40))
+	if kind == "" {
+		kind = "insight"
+	}
+	now := NowISO()
+	entry := Learning{
+		ID: NewID("learn"), Kind: kind, Summary: summary,
+		Context: CleanText(context, 300), SuggestedAction: CleanText(suggestedAction, 300),
+		Status: "pending", CreatedAt: now, UpdatedAt: now,
+	}
+	entries := append(s.Learnings(), entry)
+	if len(entries) > 200 {
+		entries = entries[len(entries)-200:]
+	}
+	return entry, s.SaveLearnings(entries)
+}
+
+// ActiveLearningContext returns recent pending learnings suitable for a model
+// prompt. Resolved records stay on disk for auditability but are not injected.
+func (s *Store) ActiveLearningContext(limit int) []Learning {
+	entries := s.Learnings()
+	out := make([]Learning, 0, limit)
+	for i := len(entries) - 1; i >= 0 && len(out) < limit; i-- {
+		if entries[i].Status == "resolved" || entries[i].Status == "wont_fix" {
+			continue
+		}
+		out = append(out, entries[i])
+	}
+	return out
 }
 
 func (s *Store) BridgeJobs() []BridgeJob {
@@ -597,7 +673,11 @@ func (s *Store) RecordMemory(kind, track, text string) {
 }
 
 func (s *Store) ensurePersonNode(m *Memory) {
-	for _, n := range m.KnowledgeGraph.Nodes { if n.ID == "person-sheetal" { return } }
+	for _, n := range m.KnowledgeGraph.Nodes {
+		if n.ID == "person-sheetal" {
+			return
+		}
+	}
 	m.KnowledgeGraph.Nodes = append(m.KnowledgeGraph.Nodes, KnowledgeNode{ID: "person-sheetal", Type: "person", Label: "Sheetal", Updated: s.now().Unix()})
 }
 

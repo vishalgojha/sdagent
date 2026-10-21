@@ -285,3 +285,108 @@ func (c *Client) Messages(query string, limit int) ([]Message, error) {
 	}
 	return out, nil
 }
+
+// SearchIDs returns Gmail message IDs matching a query. It is intentionally
+// bounded because cleanup actions must be previewable before mutation.
+func (c *Client) SearchIDs(query string, limit int) ([]string, error) {
+	if limit <= 0 || limit > 10000 {
+		limit = 1000
+	}
+	connID, err := c.RefreshConnection()
+	if err != nil {
+		return nil, err
+	}
+	headers := map[string]string{"Provider-Config-Key": c.cfg.NangoIntegration, "Connection-Id": connID}
+	ids := make([]string, 0, limit)
+	pageToken := ""
+	for len(ids) < limit {
+		params := url.Values{"maxResults": []string{fmt.Sprint(min(limit-len(ids), 500))}}
+		if strings.TrimSpace(query) != "" {
+			params.Set("q", query)
+		}
+		if pageToken != "" {
+			params.Set("pageToken", pageToken)
+		}
+		body, err := c.nangoRequest(http.MethodGet, "/proxy/gmail/v1/users/me/messages?"+params.Encode(), nil, headers)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Messages []struct {
+				ID string `json:"id"`
+			} `json:"messages"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, err
+		}
+		for _, msg := range page.Messages {
+			if msg.ID != "" && len(ids) < limit {
+				ids = append(ids, msg.ID)
+			}
+		}
+		if page.NextPageToken == "" || len(page.Messages) == 0 {
+			break
+		}
+		pageToken = page.NextPageToken
+	}
+	return ids, nil
+}
+
+// BatchModify applies Gmail label mutations in API-sized chunks.
+func (c *Client) BatchModify(ids, addLabelIDs, removeLabelIDs []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	connID, err := c.RefreshConnection()
+	if err != nil {
+		return err
+	}
+	headers := map[string]string{"Provider-Config-Key": c.cfg.NangoIntegration, "Connection-Id": connID}
+	for start := 0; start < len(ids); start += 1000 {
+		end := start + 1000
+		if end > len(ids) {
+			end = len(ids)
+		}
+		_, err := c.nangoRequest(http.MethodPost, "/proxy/gmail/v1/users/me/messages/batchModify", map[string]any{
+			"ids": ids[start:end], "addLabelIds": addLabelIDs, "removeLabelIds": removeLabelIDs,
+		}, headers)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TrashQuery moves matching mail to Gmail Trash. Permanent deletion is not
+// exposed by the native skill because it is irreversible.
+func (c *Client) TrashQuery(query string, limit int) (int, error) {
+	ids, err := c.SearchIDs(query, limit)
+	if err != nil {
+		return 0, err
+	}
+	if err := c.BatchModify(ids, []string{"TRASH"}, []string{"INBOX"}); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
+// RestoreQuery removes TRASH from matching messages. It does not put them in
+// the inbox automatically, matching the ClawHub skill's safer restore mode.
+func (c *Client) RestoreQuery(query string, limit int) (int, error) {
+	ids, err := c.SearchIDs(strings.TrimSpace(query)+" in:trash", limit)
+	if err != nil {
+		return 0, err
+	}
+	if err := c.BatchModify(ids, nil, []string{"TRASH"}); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

@@ -11,9 +11,10 @@ import (
 	"log"
 	"os"
 	"regexp"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vishalgojha/sdsheetal/internal/config"
@@ -32,13 +33,16 @@ type Reply struct {
 
 // Agent ties the assistant tools together.
 type Agent struct {
-	cfg      *config.Config
-	store    *store.Store
-	spotify  *spotify.Client
-	gmail    *gmail.Client
-	ai       *sarvam.Client
-	eleven   *eleven.Client
-	location *time.Location
+	cfg               *config.Config
+	store             *store.Store
+	spotify           *spotify.Client
+	gmail             *gmail.Client
+	ai                *sarvam.Client
+	eleven            *eleven.Client
+	location          *time.Location
+	cleanupMu         sync.Mutex
+	pendingGmailQuery string
+	pendingGmailCount int
 }
 
 func New(cfg *config.Config, st *store.Store, sp *spotify.Client, gm *gmail.Client, ai *sarvam.Client, el *eleven.Client) *Agent {
@@ -81,11 +85,12 @@ func (a *Agent) Dashboard() map[string]any {
 	}
 	m := a.store.Memory()
 	return map[string]any{
-		"now_ist":  a.now().Format(time.RFC3339),
-		"tasks":    taskedJSON(tasks),
-		"notes":    notes,
-		"shopping": shopping,
-		"plans":    plans,
+		"now_ist":   a.now().Format(time.RFC3339),
+		"tasks":     taskedJSON(tasks),
+		"notes":     notes,
+		"shopping":  shopping,
+		"plans":     plans,
+		"learnings": a.store.Learnings(),
 		"memory": map[string]any{
 			"favorite_tracks": store.MemoryTop(m.Plays, 6),
 			"skipped_tracks":  store.MemoryTop(m.Skips, 6),
@@ -129,7 +134,9 @@ func (a *Agent) Help() Reply {
 		"• Plans: \"plan my day: walk, groceries, chores\"",
 		"• Music: \"play Arijit Singh\", \"now playing?\"",
 		"• Email: \"check unread email\"",
+		"• Gmail cleanup: \"scan Gmail promotions\"; reply \"confirm Gmail cleanup\" to move the previewed messages to Trash (never permanently deleted).",
 		"• Preferences: \"remember: I like chai over coffee\"",
+		"• Self-improvement: I remember explicit corrections and feature requests to improve future replies.",
 	}
 	if a.cfg.VoiceReplies {
 		lines[0] += " I can reply with voice notes too."
@@ -144,6 +151,9 @@ func (a *Agent) Run(message string) Reply {
 		return Reply{Text: "I didn't catch that — try \"help\" to see what I can do.", Tool: "unknown"}
 	}
 	text := strings.ToLower(raw)
+	if matchesAny(text, []string{"confirm gmail cleanup", "confirm email cleanup", "confirm cleanup"}) {
+		return a.confirmGmailCleanup()
+	}
 
 	// Wake-word strip for the agent name.
 	for _, wake := range []string{"sheetal ji", "sheetal", "शीतल जी", "शीतल", a.cfg.Station} {
@@ -161,6 +171,7 @@ func (a *Agent) Run(message string) Reply {
 	}
 
 	a.store.RecordMemory("conversation", "", raw)
+	a.captureLearningSignal(raw, text)
 
 	if matchesAny(text, []string{"help", "commands", "what can you", "how do you work", "show commands", "menu", "मदद"}) {
 		return a.Help()
@@ -255,27 +266,52 @@ func (a *Agent) aiReply(message string) string {
 	defer cancel()
 	prompt := indianSystemPrompt(a.cfg.Station)
 	prompt += fmt.Sprintf("\nCurrent local time in IST: %s. Use this for time-aware greetings and relative dates.", a.now().Format("Monday, 2 January 2006, 3:04 PM"))
+	if learnings := a.store.ActiveLearningContext(8); len(learnings) > 0 {
+		var lines []string
+		for _, learning := range learnings {
+			line := fmt.Sprintf("- [%s] %s", learning.Kind, learning.Summary)
+			if learning.SuggestedAction != "" {
+				line += " | Suggested action: " + learning.SuggestedAction
+			}
+			lines = append(lines, line)
+		}
+		prompt += "\nRelevant self-improvement records (treat as provisional guidance; do not expose internal details):\n" + strings.Join(lines, "\n")
+	}
 	// Each hosted turn is a fresh session, so provide a short durable window
 	// from the on-disk conversation log for continuity across WhatsApp messages.
 	if m := a.store.Memory(); len(m.Conversations) > 1 {
 		start := len(m.Conversations) - 12
-		if start < 0 { start = 0 }
+		if start < 0 {
+			start = 0
+		}
 		var recent []string
 		for _, entry := range m.Conversations[start:] {
-			if strings.TrimSpace(entry.Text) != "" { recent = append(recent, entry.Text) }
+			if strings.TrimSpace(entry.Text) != "" {
+				recent = append(recent, entry.Text)
+			}
 		}
 		if len(recent) > 0 {
 			contextText := strings.Join(recent, "\n")
 			// Keep hosted-agent prompts below websocket/provider limits while
 			// retaining the most recent continuity window.
-			if len(contextText) > 6000 { contextText = contextText[len(contextText)-6000:] }
+			if len(contextText) > 6000 {
+				contextText = contextText[len(contextText)-6000:]
+			}
 			prompt += "\nRecent conversation (use only as context):\n" + contextText
 		}
-		if len(m.Preferences) == 0 && len(m.Conversations) <= 2 { prompt += "\nThis is Sheetal’s first interaction. Give a warm time-aware greeting, then ask at most three concise onboarding questions: preferred reminder channel (WhatsApp, email, or screen), preferred language, and one useful preference to remember. Do not assume parents or family members." }
+		if len(m.Preferences) == 0 && len(m.Conversations) <= 2 {
+			prompt += "\nThis is Sheetal’s first interaction. Give a warm time-aware greeting, then ask at most three concise onboarding questions: preferred reminder channel (WhatsApp, email, or screen), preferred language, and one useful preference to remember. Do not assume parents or family members."
+		}
 		if len(m.KnowledgeGraph.Nodes) > 0 {
 			var facts []string
-			for _, n := range m.KnowledgeGraph.Nodes { if n.Type == "preference" && n.Value != "" { facts = append(facts, n.Value) } }
-			if len(facts) > 0 { prompt += "\nPersonal knowledge graph facts about Sheetal (use discreetly):\n- " + strings.Join(facts, "\n- ") }
+			for _, n := range m.KnowledgeGraph.Nodes {
+				if n.Type == "preference" && n.Value != "" {
+					facts = append(facts, n.Value)
+				}
+			}
+			if len(facts) > 0 {
+				prompt += "\nPersonal knowledge graph facts about Sheetal (use discreetly):\n- " + strings.Join(facts, "\n- ")
+			}
 		}
 	}
 	if a.eleven != nil && a.eleven.Enabled() {
@@ -295,6 +331,31 @@ func (a *Agent) aiReply(message string) string {
 	return ""
 }
 
+// captureLearningSignal ports the ClawHub self-improvement workflow into the
+// WhatsApp runtime without OpenClaw hooks or transcript access. It captures
+// only explicit, short user signals; it never stores credentials or raw logs.
+func (a *Agent) captureLearningSignal(raw, text string) {
+	clean := strings.TrimSpace(raw)
+	if clean == "" {
+		return
+	}
+	correction := matchesAny(text, []string{
+		"that's wrong", "that is wrong", "not correct", "you misunderstood", "i meant", "no, ",
+		"गलत", "नहीं,",
+	})
+	feature := matchesAny(text, []string{
+		"please add", "can you add", "i wish you could", "feature request", "you should support",
+		"add a feature", "could you support",
+	})
+	if correction {
+		_, _ = a.store.RecordLearning("correction", clean, "owner message", "Prefer the corrected interpretation on future turns")
+		return
+	}
+	if feature {
+		_, _ = a.store.RecordLearning("feature_request", clean, "owner message", "Review before implementing; ask for details if ambiguous")
+	}
+}
+
 // --- tasks -----------------------------------------------------------------
 
 func (a *Agent) handleTasks(raw, text string) (Reply, bool) {
@@ -311,7 +372,19 @@ func (a *Agent) handleTasks(raw, text string) (Reply, bool) {
 		}
 		due := ""
 		if m := regexp.MustCompile(`(?i)\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b`).FindStringSubmatch(raw); len(m) > 0 {
-			h, _ := strconv.Atoi(m[1]); min := 0; if m[2] != "" { min, _ = strconv.Atoi(m[2]) }; if strings.EqualFold(m[3], "pm") && h < 12 { h += 12 }; if strings.EqualFold(m[3], "am") && h == 12 { h = 0 }; n := a.now(); due = time.Date(n.Year(), n.Month(), n.Day(), h, min, 0, 0, a.location).Format(time.RFC3339)
+			h, _ := strconv.Atoi(m[1])
+			min := 0
+			if m[2] != "" {
+				min, _ = strconv.Atoi(m[2])
+			}
+			if strings.EqualFold(m[3], "pm") && h < 12 {
+				h += 12
+			}
+			if strings.EqualFold(m[3], "am") && h == 12 {
+				h = 0
+			}
+			n := a.now()
+			due = time.Date(n.Year(), n.Month(), n.Day(), h, min, 0, 0, a.location).Format(time.RFC3339)
 		}
 		t, err := a.store.CreateTask(title, due, "normal", "")
 		if err != nil {
@@ -718,6 +791,32 @@ func (a *Agent) handleEmail(raw, text string) (Reply, bool) {
 	if !matchesAny(text, emailKeywords) {
 		return Reply{}, false
 	}
+	if matchesAny(text, []string{"scan gmail", "scan email", "gmail cleanup", "clean gmail", "clean email"}) {
+		query := "-in:trash -in:spam"
+		cleanupRequested := matchesAny(text, []string{"gmail cleanup", "clean gmail", "clean email", "promotions", "promos", "newsletter"})
+		if strings.Contains(text, "promotions") || strings.Contains(text, "promos") {
+			query = "category:promotions -in:trash"
+		} else if strings.Contains(text, "newsletter") {
+			query = "unsubscribe older_than:90d -in:trash -in:spam"
+		} else if cleanupRequested {
+			query = "category:promotions -in:trash"
+		}
+		ids, err := a.gmail.SearchIDs(query, 1000)
+		if err != nil {
+			return Reply{Text: "I couldn't scan Gmail right now. Please check the Gmail connection in the web panel.", Tool: "gmail_scan"}, true
+		}
+		if len(ids) == 0 {
+			return Reply{Text: "I found no matching Gmail messages.", Tool: "gmail_scan"}, true
+		}
+		if !cleanupRequested {
+			return Reply{Text: fmt.Sprintf("I found %d Gmail message(s) outside Trash and Spam. Nothing was changed. Say 'clean Gmail promotions' if you want a reviewable cleanup preview.", len(ids)), Tool: "gmail_scan"}, true
+		}
+		a.cleanupMu.Lock()
+		a.pendingGmailQuery = query
+		a.pendingGmailCount = len(ids)
+		a.cleanupMu.Unlock()
+		return Reply{Text: fmt.Sprintf("I found %d matching Gmail message(s) for %q. Reply 'confirm gmail cleanup' to move them to Trash, or send anything else to cancel.", len(ids), query), Tool: "gmail_scan"}, true
+	}
 	if !a.gmail.Enabled() {
 		return Reply{Text: "Gmail isn't connected yet — the owner needs to set NANGO_SECRET_KEY and connect Gmail once.", Tool: "email_inbox"}, true
 	}
@@ -754,6 +853,21 @@ func (a *Agent) handleEmail(raw, text string) (Reply, bool) {
 		lines = append(lines, fmt.Sprintf("• %s from %s%s", m.Subject, from, mark))
 	}
 	return Reply{Text: strings.Join(lines, "\n"), Tool: "email_inbox"}, true
+}
+
+func (a *Agent) confirmGmailCleanup() Reply {
+	a.cleanupMu.Lock()
+	query, count := a.pendingGmailQuery, a.pendingGmailCount
+	a.pendingGmailQuery, a.pendingGmailCount = "", 0
+	a.cleanupMu.Unlock()
+	if query == "" || count == 0 {
+		return Reply{Text: "There is no pending Gmail cleanup to confirm.", Tool: "gmail_cleanup"}
+	}
+	n, err := a.gmail.TrashQuery(query, count)
+	if err != nil {
+		return Reply{Text: "Gmail cleanup failed before completion; nothing more was attempted.", Tool: "gmail_cleanup_error"}
+	}
+	return Reply{Text: fmt.Sprintf("Done — moved %d Gmail message(s) to Trash. I did not permanently delete anything.", n), Tool: "gmail_cleanup"}
 }
 
 func idxFrom(s string) int {
