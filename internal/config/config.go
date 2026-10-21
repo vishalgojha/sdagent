@@ -46,13 +46,10 @@ type Config struct {
 	SarvamSTTLang    string
 	SarvamChatModel  string
 
-	// Nango / Gmail
-	NangoSecretKey   string
-	NangoAPIBase     string
-	NangoIntegration string
-	NangoUserID      string
-	NangoConnectionID string
-	NangoUserEmail   string
+	// Gmail (standard Google OAuth)
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleRedirectURL  string
 
 	// Auth
 	AgentToken string // shared token for the manual web tool API
@@ -133,12 +130,9 @@ func Load() *Config {
 		SarvamSTTLang:    env("SARVAM_STT_LANG", "unknown"),
 		SarvamChatModel:  env("SARVAM_CHAT_MODEL", "sarvam-105b-conversations"),
 
-		NangoSecretKey:   env("NANGO_SECRET_KEY", ""),
-		NangoAPIBase:     env("NANGO_API_BASE", "https://api.nango.dev"),
-		NangoIntegration: env("NANGO_INTEGRATION_ID", "gmail"),
-		NangoUserID:      env("NANGO_USER_ID", "sheetal"),
-		NangoConnectionID: env("NANGO_CONNECTION_ID", ""),
-		NangoUserEmail:    env("NANGO_USER_EMAIL", ""),
+		GoogleClientID:     env("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: env("GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURL:  env("GOOGLE_REDIRECT_URL", "https://sd.vishalojha.me/api/email/callback"),
 
 		AgentToken: env("SDSHEETAL_AGENT_TOKEN", ""),
 
@@ -161,7 +155,7 @@ func (c *Config) HasSarvam() bool {
 	return c.SarvamAPIKey != ""
 }
 
-// HasNango reports whether Gmail integration is configured.
-func (c *Config) HasNango() bool {
-	return c.NangoSecretKey != "" && c.NangoIntegration != ""
+// HasGoogleOAuth reports whether standard Gmail OAuth is configured.
+func (c *Config) HasGoogleOAuth() bool {
+	return c.GoogleClientID != "" && c.GoogleClientSecret != "" && c.GoogleRedirectURL != ""
 }

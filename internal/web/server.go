@@ -117,6 +117,7 @@ func (s *Server) routes() {
 
 	mux.HandleFunc("/api/email/status", s.emailStatus)
 	mux.HandleFunc("/api/email/connect", s.emailConnect)
+	mux.HandleFunc("/api/email/callback", s.emailCallback)
 	mux.HandleFunc("/api/email/disconnect", s.emailDisconnect)
 	mux.HandleFunc("/api/email/inbox", s.emailInbox)
 
@@ -288,16 +289,29 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) whatsappDisconnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error":"use POST"}); return }
-	if !s.requireAuth(w, r) { return }
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "use POST"})
+		return
+	}
+	if !s.requireAuth(w, r) {
+		return
+	}
 	s.wa.Disconnect()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) whatsappReconnect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost { writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error":"use POST"}); return }
-	if !s.requireAuth(w, r) { return }
-	if err := s.wa.Reconnect(); err != nil { writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()}); return }
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "use POST"})
+		return
+	}
+	if !s.requireAuth(w, r) {
+		return
+	}
+	if err := s.wa.Reconnect(); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -510,15 +524,11 @@ func (s *Server) emailStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := s.gmail.Connection()
-	if conn == nil {
-		_, _ = s.gmail.RefreshConnection()
-		conn = s.gmail.Connection()
-	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"configured":     true,
 		"connected":      conn != nil && conn.ConnectionID != "",
 		"setup_required": false,
-		"account_email":  s.cfg.NangoUserEmail,
+		"account_email":  s.gmail.ProfileEmail(),
 	})
 }
 
@@ -547,14 +557,22 @@ func (s *Server) emailConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	link, err := s.gmail.ConnectLink()
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "integration does not exist") {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": "Nango rejected the integration key. Set NANGO_INTEGRATION_ID to the exact provider-config key shown in Nango (not necessarily 'gmail'), then redeploy."})
-			return
-		}
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
 	http.Redirect(w, r, link, http.StatusFound)
+}
+
+func (s *Server) emailCallback(w http.ResponseWriter, r *http.Request) {
+	if errText := r.URL.Query().Get("error"); errText != "" {
+		http.Error(w, "Google connection cancelled: "+errText, http.StatusBadRequest)
+		return
+	}
+	if err := s.gmail.Callback(r.URL.Query().Get("code"), r.URL.Query().Get("state")); err != nil {
+		http.Error(w, "Google connection failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	http.Redirect(w, r, "/#/email?connected=1", http.StatusFound)
 }
 
 func (s *Server) emailInbox(w http.ResponseWriter, r *http.Request) {

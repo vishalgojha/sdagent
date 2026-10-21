@@ -2,7 +2,7 @@
 
 WhatsApp personal assistant built on [whatsmeow](https://github.com/tulir/whatsmeow).
 Run Sheetal as a WhatsApp contact: tasks, notes, shopping, plans, music queue,
-Spotify, Gmail via Nango, and optional ElevenLabs voice-note replies. A small
+Spotify, Gmail via standard Google OAuth, and optional ElevenLabs voice-note replies. A small
 web panel handles QR pairing, a command console, and a live dashboard.
 
 ## Quick start (local)
@@ -58,7 +58,7 @@ Small keywords-based intent parser (English + Hindi). Examples:
 ClawHub skills are reviewed as behavior specifications and ported into the Go
 runtime. The self-improvement skill stores bounded records in
 `$SDSHEETAL_DATA/learnings.json` and injects recent pending guidance into AI
-replies. The Gmail cleaner port uses the existing Nango Gmail connection,
+replies. The Gmail cleaner port uses the Gmail API directly after a standard Google OAuth connection,
 supports bounded previews and confirmation-gated trash/restore operations, and
 never permanently deletes mail.
 

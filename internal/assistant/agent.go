@@ -917,7 +917,7 @@ func (a *Agent) handleEmail(raw, text string) (Reply, bool) {
 		return Reply{Text: fmt.Sprintf("I found %d matching Gmail message(s) for %q. Reply 'confirm gmail cleanup' to move them to Trash, or send anything else to cancel.", len(ids), query), Tool: "gmail_scan"}, true
 	}
 	if !a.gmail.Enabled() {
-		return Reply{Text: "Gmail isn't connected yet — the owner needs to set NANGO_SECRET_KEY and connect Gmail once.", Tool: "email_inbox"}, true
+		return Reply{Text: "Gmail isn't connected yet — connect Google once from the web panel.", Tool: "email_inbox"}, true
 	}
 	unreadOnly := matchesAny(text, []string{"unread", "अनपढ़ा", "new mail"})
 	query := ""

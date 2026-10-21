@@ -397,7 +397,7 @@ function setupBills() {
 function refreshServices() {
   api("/api/email/status").then(function(e) {
     var lines = [];
-    if (e.setup_required) lines.push("Gmail is not configured yet. Set NANGO_SECRET_KEY and NANGO_INTEGRATION_ID.");
+	    if (e.setup_required) lines.push("Gmail is not configured yet. Add Google OAuth client credentials in Coolify.");
     else if (e.connected) lines.push("Gmail: connected");
     else if (e.configured) lines.push("Gmail: configured but not connected.");
     else lines.push("Gmail: not configured.");
