@@ -48,6 +48,7 @@ Small keywords-based intent parser (English + Hindi). Examples:
   from the JioSaavn-style `uplink` if `SD_*` music endpoints are configured)
 - email: `check inbox`, `any new email`, `search email for invoice`
 - Gmail cleanup: `scan Gmail promotions`, then explicitly confirm with `confirm Gmail cleanup` to move the previewed messages to Trash; permanent deletion is not exposed
+- personal payments: `add EMI HDFC ₹42000 due 5th`, `payments due this week`, `mark rent paid`, `recurring payments`
 - voice: send a voice note and Sheetal transcribes it with Sarvam STT, then
   answers; replies can be spoken with Sarvam TTS (Indic) or ElevenLabs
 - text `help` returns the full tool help

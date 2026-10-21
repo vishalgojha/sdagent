@@ -87,6 +87,25 @@ type Task struct {
 	CompletedAt string `json:"completed_at,omitempty"`
 }
 
+// Bill stores safe payment metadata only. It must never contain card numbers,
+// bank credentials, UPI credentials, or payment links with secrets.
+type Bill struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Kind         string `json:"kind"` // bill, emi, subscription, insurance, sip
+	Amount       string `json:"amount,omitempty"`
+	Currency     string `json:"currency,omitempty"`
+	DueDate      string `json:"due_date"`
+	Frequency    string `json:"frequency"`
+	AccountLast4 string `json:"account_last4,omitempty"`
+	Autopay      bool   `json:"autopay,omitempty"`
+	Status       string `json:"status"`
+	Notes        string `json:"notes,omitempty"`
+	LastPaidAt   string `json:"last_paid_at,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
 type Note struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -293,6 +312,59 @@ func (s *Store) Tasks() []Task {
 }
 
 func (s *Store) SaveTasks(tasks []Task) error { return s.writeJSON(s.file("tasks.json"), tasks) }
+
+func (s *Store) Bills() []Bill {
+	out := []Bill{}
+	if err := s.readJSON(s.file("bills.json"), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func (s *Store) SaveBills(bills []Bill) error { return s.writeJSON(s.file("bills.json"), bills) }
+
+func (s *Store) CreateBill(name, kind, amount, dueDate, frequency, last4, notes string, autopay bool) (Bill, error) {
+	name = CleanText(name, 120)
+	if name == "" {
+		return Bill{}, fmt.Errorf("bill name required")
+	}
+	kind = strings.ToLower(CleanText(kind, 30))
+	if kind == "" {
+		kind = "bill"
+	}
+	frequency = strings.ToLower(CleanText(frequency, 30))
+	if frequency == "" {
+		frequency = "monthly"
+	}
+	now := NowISO()
+	bill := Bill{
+		ID: NewID("bill"), Name: name, Kind: kind, Amount: CleanText(amount, 40), Currency: "INR",
+		DueDate: CleanText(dueDate, 40), Frequency: frequency, AccountLast4: CleanText(last4, 4),
+		Autopay: autopay, Status: "open", Notes: CleanText(notes, 300), CreatedAt: now, UpdatedAt: now,
+	}
+	bills := append(s.Bills(), bill)
+	if len(bills) > 300 {
+		bills = bills[len(bills)-300:]
+	}
+	return bill, s.SaveBills(bills)
+}
+
+func (s *Store) MarkBillPaid(id, name string) *Bill {
+	bills := s.Bills()
+	for i := range bills {
+		b := &bills[i]
+		match := (id != "" && b.ID == CleanText(id, 100)) || (name != "" && strings.Contains(strings.ToLower(b.Name), strings.ToLower(CleanText(name, 120))))
+		if !match {
+			continue
+		}
+		b.Status = "paid"
+		b.LastPaidAt = NowISO()
+		b.UpdatedAt = NowISO()
+		_ = s.SaveBills(bills)
+		return b
+	}
+	return nil
+}
 
 func (s *Store) CreateTask(title, due, priority, notes string) (Task, error) {
 	title = CleanText(title, 180)

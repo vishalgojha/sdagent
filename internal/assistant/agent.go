@@ -90,6 +90,7 @@ func (a *Agent) Dashboard() map[string]any {
 		"notes":     notes,
 		"shopping":  shopping,
 		"plans":     plans,
+		"bills":     a.store.Bills(),
 		"learnings": a.store.Learnings(),
 		"memory": map[string]any{
 			"favorite_tracks": store.MemoryTop(m.Plays, 6),
@@ -135,6 +136,7 @@ func (a *Agent) Help() Reply {
 		"• Music: \"play Arijit Singh\", \"now playing?\"",
 		"• Email: \"check unread email\"",
 		"• Gmail cleanup: \"scan Gmail promotions\"; reply \"confirm Gmail cleanup\" to move the previewed messages to Trash (never permanently deleted).",
+		"• Payments: \"add EMI HDFC ₹42000 due 5th\", \"payments due this week\", \"mark rent paid\"",
 		"• Preferences: \"remember: I like chai over coffee\"",
 		"• Self-improvement: I remember explicit corrections and feature requests to improve future replies.",
 	}
@@ -184,6 +186,9 @@ func (a *Agent) Run(message string) Reply {
 	if matchesAny(text, []string{"hi", "hello", "hey", "namaste", "नमस्ते", "good morning", "good evening", "good afternoon", "gm", "hii", "hello sheetal"}) {
 		return a.greeting(raw)
 	}
+	if reply, ok := a.handleBills(raw, text); ok {
+		return reply
+	}
 
 	if reply, ok := a.handleTasks(raw, text); ok {
 		return reply
@@ -217,6 +222,100 @@ func (a *Agent) Run(message string) Reply {
 		Text: "I’m not fully sure what you want yet. Tell me in your own words — Hindi, English, or Hinglish is fine — and I’ll ask a quick follow-up if I need more detail.",
 		Tool: "fallback",
 	}
+}
+
+// handleBills provides a lightweight personal payment ledger. It records
+// reminders and payment status only; it never attempts to move money.
+func (a *Agent) handleBills(raw, text string) (Reply, bool) {
+	if matchesAny(text, []string{"mark ", "paid", "payment done", "bill paid", "emi paid"}) && (strings.Contains(text, "paid") || strings.Contains(text, "payment done")) {
+		name := strings.TrimSpace(raw)
+		for _, prefix := range []string{"mark ", "marked ", "bill paid ", "emi paid ", "payment done "} {
+			name = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(name), prefix))
+			if name != strings.ToLower(strings.TrimSpace(raw)) {
+				break
+			}
+		}
+		name = strings.TrimSpace(strings.TrimSuffix(name, " as paid"))
+		if b := a.store.MarkBillPaid("", name); b != nil {
+			return Reply{Text: fmt.Sprintf("Marked %s as paid.", b.Name), Tool: "mark_bill_paid"}, true
+		}
+		return Reply{Text: "I couldn't find that bill or EMI. Try 'show my payments'.", Tool: "mark_bill_paid"}, true
+	}
+
+	if matchesAny(text, []string{"add bill", "add emi", "add an emi", "track bill", "track emi", "add subscription", "add insurance", "add sip", "remember bill"}) {
+		kind := "bill"
+		if strings.Contains(text, "emi") {
+			kind = "emi"
+		} else if strings.Contains(text, "subscription") {
+			kind = "subscription"
+		} else if strings.Contains(text, "insurance") {
+			kind = "insurance"
+		} else if strings.Contains(text, "sip") {
+			kind = "sip"
+		}
+		name := extractAfter(raw, []string{"add an emi", "add emi", "add bill", "track bill", "track emi", "add subscription", "add insurance", "add sip", "remember bill"}, text)
+		amount := ""
+		if m := regexp.MustCompile(`(?i)(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d{1,2})?)`).FindStringSubmatch(name); len(m) > 1 {
+			amount = strings.ReplaceAll(m[1], ",", "")
+		}
+		name = regexp.MustCompile(`(?i)\s*(?:₹|rs\.?|inr)\s*[\d,]+(?:\.\d{1,2})?`).ReplaceAllString(name, "")
+		due := parseBillDueDate(name, a.location)
+		name = regexp.MustCompile(`(?i)\s+(?:due|on|by)\s+\d{1,2}(?:st|nd|rd|th)?`).ReplaceAllString(name, "")
+		name = strings.TrimSpace(strings.Trim(name, "-:,"))
+		if name == "" {
+			return Reply{Text: "Tell me the bill or EMI name, for example: add EMI HDFC ₹42000 due 5th.", Tool: "add_bill"}, true
+		}
+		if due == "" {
+			return Reply{Text: "What day is it due? For example: add EMI HDFC ₹42000 due 5th.", Tool: "add_bill"}, true
+		}
+		b, err := a.store.CreateBill(name, kind, amount, due, "monthly", "", "", false)
+		if err != nil {
+			return Reply{Text: "I couldn't save that payment reminder.", Tool: "add_bill"}, true
+		}
+		amountText := ""
+		if b.Amount != "" {
+			amountText = " for ₹" + b.Amount
+		}
+		return Reply{Text: fmt.Sprintf("Saved %s%s, due on %s every month. I won't make the payment automatically.", b.Name, amountText, b.DueDate), Tool: "add_bill"}, true
+	}
+
+	if matchesAny(text, []string{"payments due", "upcoming bills", "my bills", "my emis", "my emi", "recurring payments", "payment summary", "financial commitments"}) {
+		bills := a.store.Bills()
+		if len(bills) == 0 {
+			return Reply{Text: "You don't have any bills or EMIs saved yet.", Tool: "list_bills"}, true
+		}
+		lines := []string{"Your saved payments:"}
+		for i := len(bills) - 1; i >= 0 && len(lines) < 9; i-- {
+			b := bills[i]
+			line := fmt.Sprintf("• %s — due %s", b.Name, b.DueDate)
+			if b.Amount != "" {
+				line += " — ₹" + b.Amount
+			}
+			if b.Status == "paid" {
+				line += " (paid)"
+			}
+			lines = append(lines, line)
+		}
+		return Reply{Text: strings.Join(lines, "\n"), Tool: "list_bills"}, true
+	}
+	return Reply{}, false
+}
+
+func parseBillDueDate(text string, loc *time.Location) string {
+	m := regexp.MustCompile(`(?i)\b(?:due|on|by)\s+(\d{1,2})(?:st|nd|rd|th)?\b`).FindStringSubmatch(text)
+	if len(m) < 2 {
+		return ""
+	}
+	day, err := strconv.Atoi(m[1])
+	if err != nil || day < 1 || day > 31 {
+		return ""
+	}
+	now := time.Now().In(loc)
+	due := time.Date(now.Year(), now.Month(), day, 0, 0, 0, 0, loc)
+	if due.Before(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)) {
+		due = due.AddDate(0, 1, 0)
+	}
+	return due.Format("2006-01-02")
 }
 
 func isBrowserIntent(text string) bool {
