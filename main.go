@@ -21,6 +21,7 @@ import (
 	"github.com/vishalgojha/sdsheetal/internal/config"
 	"github.com/vishalgojha/sdsheetal/internal/eleven"
 	"github.com/vishalgojha/sdsheetal/internal/gmail"
+	"github.com/vishalgojha/sdsheetal/internal/openrouter"
 	"github.com/vishalgojha/sdsheetal/internal/sarvam"
 	"github.com/vishalgojha/sdsheetal/internal/spotify"
 	"github.com/vishalgojha/sdsheetal/internal/store"
@@ -40,9 +41,10 @@ func main() {
 	sp := spotify.New(cfg)
 	voice := tts.New(cfg)
 	sv := sarvam.New(cfg)
+	or := openrouter.New(cfg)
 	el := eleven.New(cfg)
 	gm := gmail.New(cfg)
-	agent := assistant.New(cfg, st, sp, gm, sv, el)
+	agent := assistant.New(cfg, st, sp, gm, sv, or, el)
 
 	wa := whatsapp.New(cfg, st, agent, voice, sv)
 	if err := wa.Start(); err != nil {
@@ -78,15 +80,26 @@ func main() {
 }
 
 func reminderLoop(st *store.Store, wa *whatsapp.Client, zone string) {
-	loc, err := time.LoadLocation(zone); if err != nil { loc = time.FixedZone("IST", 5*3600+30*60) }
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		loc = time.FixedZone("IST", 5*3600+30*60)
+	}
 	for {
 		now := time.Now().In(loc)
 		for _, t := range st.Tasks() {
-			if t.Status != "open" || t.Due == "" { continue }
+			if t.Status != "open" || t.Due == "" {
+				continue
+			}
 			// Deliver overdue reminders after a restart or brief outage as well;
 			// successful delivery completes the task so it is never repeated.
-			due, err := time.Parse(time.RFC3339, t.Due); if err != nil || due.After(now) || now.Sub(due) > 24*time.Hour { continue }
-			if err := wa.SendTextToOwner("Reminder, Sheetal: " + t.Title); err != nil { log.Printf("reminder %s: %v", t.ID, err); continue }
+			due, err := time.Parse(time.RFC3339, t.Due)
+			if err != nil || due.After(now) || now.Sub(due) > 24*time.Hour {
+				continue
+			}
+			if err := wa.SendTextToOwner("Reminder, Sheetal: " + t.Title); err != nil {
+				log.Printf("reminder %s: %v", t.ID, err)
+				continue
+			}
 			// Supplement WhatsApp with a native desktop alert when Agent V's
 			// companion bridge is online (useful when self-chat is muted).
 			_, _ = st.EnqueueBridge("laptop", "notify", map[string]any{"title": "Agent V reminder", "message": t.Title})

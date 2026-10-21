@@ -20,6 +20,7 @@ import (
 	"github.com/vishalgojha/sdsheetal/internal/config"
 	"github.com/vishalgojha/sdsheetal/internal/eleven"
 	"github.com/vishalgojha/sdsheetal/internal/gmail"
+	"github.com/vishalgojha/sdsheetal/internal/openrouter"
 	"github.com/vishalgojha/sdsheetal/internal/sarvam"
 	"github.com/vishalgojha/sdsheetal/internal/spotify"
 	"github.com/vishalgojha/sdsheetal/internal/store"
@@ -38,6 +39,7 @@ type Agent struct {
 	spotify           *spotify.Client
 	gmail             *gmail.Client
 	ai                *sarvam.Client
+	openrouter        *openrouter.Client
 	eleven            *eleven.Client
 	location          *time.Location
 	cleanupMu         sync.Mutex
@@ -45,12 +47,12 @@ type Agent struct {
 	pendingGmailCount int
 }
 
-func New(cfg *config.Config, st *store.Store, sp *spotify.Client, gm *gmail.Client, ai *sarvam.Client, el *eleven.Client) *Agent {
+func New(cfg *config.Config, st *store.Store, sp *spotify.Client, gm *gmail.Client, ai *sarvam.Client, or *openrouter.Client, el *eleven.Client) *Agent {
 	loc, err := time.LoadLocation(cfg.TimeZone)
 	if err != nil {
 		loc = time.FixedZone("IST", 5*3600+30*60)
 	}
-	return &Agent{cfg: cfg, store: st, spotify: sp, gmail: gm, ai: ai, eleven: el, location: loc}
+	return &Agent{cfg: cfg, store: st, spotify: sp, gmail: gm, ai: ai, openrouter: or, eleven: el, location: loc}
 }
 
 func (a *Agent) now() time.Time { return time.Now().In(a.location) }
@@ -427,6 +429,13 @@ func (a *Agent) aiReply(message string) string {
 			return strings.TrimSpace(text)
 		} else if err != nil {
 			log.Printf("elevenlabs agent turn failed: %v", err)
+		}
+	}
+	if a.openrouter != nil && a.openrouter.Enabled() {
+		if text, err := a.openrouter.Chat(ctx, prompt, message); err == nil && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
+		} else if err != nil {
+			log.Printf("openrouter chat turn failed: %v", err)
 		}
 	}
 	if a.ai != nil && a.ai.Enabled() {

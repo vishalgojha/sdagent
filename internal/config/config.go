@@ -46,6 +46,11 @@ type Config struct {
 	SarvamSTTLang    string
 	SarvamChatModel  string
 
+	// OpenRouter chat
+	OpenRouterAPIKey  string
+	OpenRouterModel   string
+	OpenRouterBaseURL string
+
 	// Gmail (standard Google OAuth)
 	GoogleClientID     string
 	GoogleClientSecret string
@@ -129,6 +134,10 @@ func Load() *Config {
 		SarvamSTTMode:    env("SARVAM_STT_MODE", "transcribe"),
 		SarvamSTTLang:    env("SARVAM_STT_LANG", "unknown"),
 		SarvamChatModel:  env("SARVAM_CHAT_MODEL", "sarvam-105b-conversations"),
+
+		OpenRouterAPIKey:  env("OPENROUTER_API_KEY", ""),
+		OpenRouterModel:   env("OPENROUTER_MODEL", "openrouter/free"),
+		OpenRouterBaseURL: env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
 
 		GoogleClientID:     env("GOOGLE_CLIENT_ID", ""),
 		GoogleClientSecret: env("GOOGLE_CLIENT_SECRET", ""),
